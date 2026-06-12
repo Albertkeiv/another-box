@@ -4,6 +4,10 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
+import pytest
+
+from another_box.errors import SubscriptionError
 from another_box.subscriptions import SubscriptionClient
 
 
@@ -35,3 +39,25 @@ def test_subscription_client_with_local_http_server(monkeypatch):
         server.server_close()
 
     assert result["outbounds"][0]["type"] == "direct"
+
+
+@pytest.mark.parametrize(
+    ("section", "body"),
+    [
+        (
+            "outbounds",
+            '{"outbounds": [{"tag": "first"}], "outbounds": [{"tag": "second"}]}',
+        ),
+        (
+            "dns",
+            '{"dns": {"servers": []}, "dns": {"servers": [{"type": "local"}]}}',
+        ),
+    ],
+)
+def test_subscription_client_rejects_duplicate_json_options(section, body):
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, content=body.encode())
+    )
+
+    with pytest.raises(SubscriptionError, match=rf"Повторяющаяся опция JSON: «{section}»"):
+        SubscriptionClient(transport=transport).fetch("https://example.test/config")

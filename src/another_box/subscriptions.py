@@ -31,12 +31,21 @@ class SubscriptionClient:
             ) as client:
                 response = client.get(url)
                 response.raise_for_status()
-                value = response.json()
+                value = response.json(object_pairs_hook=_reject_duplicate_keys)
         except (httpx.HTTPError, ValueError) as error:
             raise SubscriptionError(f"Не удалось получить подписку: {error}") from error
         if not isinstance(value, dict):
             raise SubscriptionError("Корень подписки должен быть JSON-объектом.")
         return value
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"Повторяющаяся опция JSON: «{key}».")
+        value[key] = item
+    return value
 
 
 class ProfileService:

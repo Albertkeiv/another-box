@@ -44,7 +44,8 @@ class ProfileDialog(QDialog):
         self.type_combo.addItem("TUN", "tun")
         self.type_combo.setCurrentIndex(0 if inbound.kind == "mixed" else 1)
         tag_label = QLabel(
-            f"Подписка должна содержать outbound с tag {OUTBOUND_TAG}."
+            f"Подписка должна содержать outbound или endpoint "
+            f"с tag {OUTBOUND_TAG}."
         )
         tag_label.setObjectName("muted")
         tag_label.setWordWrap(True)

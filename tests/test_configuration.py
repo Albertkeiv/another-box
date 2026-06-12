@@ -55,6 +55,29 @@ def test_optional_allowed_sections_can_be_absent():
     assert set(result) == {"outbounds", "inbounds"}
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        {},
+        {"outbounds": []},
+        {"endpoints": []},
+        {"outbounds": [], "endpoints": []},
+    ],
+)
+def test_configuration_requires_at_least_one_outbound_or_endpoint(source):
+    with pytest.raises(ValidationError, match="хотя бы один outbound или endpoint"):
+        build_configuration(source, InboundConfig())
+
+
+def test_proxy_endpoint_can_be_used_without_outbounds():
+    endpoint = {"type": "wireguard", "tag": OUTBOUND_TAG}
+
+    result = build_configuration({"endpoints": [endpoint]}, InboundConfig())
+
+    assert result["endpoints"] == [endpoint]
+    assert "outbounds" not in result
+
+
 def test_tun_configuration_uses_current_array_address_shape():
     inbound = InboundConfig(
         kind="tun",
@@ -83,7 +106,7 @@ def test_old_proxy_inbound_tag_is_migrated_to_kind_default():
     assert InboundConfig(kind="tun", tag="PROXY").tag == "tun-in"
 
 
-def test_configuration_requires_proxy_outbound():
+def test_configuration_requires_proxy_target():
     with pytest.raises(ValidationError, match="outbound.*PROXY"):
         build_configuration(
             {"outbounds": [{"type": "direct", "tag": "direct"}]},
