@@ -31,6 +31,46 @@ class ReadingValidator:
             raise self.error
 
 
+def test_create_profile_saves_config_without_sing_box_validation(store):
+    source = {
+        "outbounds": [{"type": "direct", "tag": OUTBOUND_TAG}],
+        "log": {"level": "debug"},
+    }
+    validator = ReadingValidator(error=AssertionError("validator must not run"))
+    service = ProfileService(store, StaticClient(source), validator)
+
+    profile = service.create_profile(
+        "Main",
+        "https://example.test/config.json",
+        InboundConfig(port=2088),
+    )
+
+    written = json.loads(store.config_path(profile.id).read_text("utf-8"))
+    assert written["inbounds"][0]["listen_port"] == 2088
+    assert "log" not in written
+    assert validator.values == []
+    assert profile.last_update_ok is None
+
+
+def test_failed_create_keeps_profile_for_later_retry(store):
+    service = ProfileService(
+        store,
+        StaticClient(error=SubscriptionError("network failed")),
+        ReadingValidator(),
+    )
+
+    profile = service.create_profile(
+        "Offline",
+        "https://example.test/config.json",
+        InboundConfig(),
+    )
+
+    assert store.get(profile.id).name == "Offline"
+    assert store.get(profile.id).last_update_ok is False
+    assert "network failed" in store.get(profile.id).last_error
+    assert store.has_config(profile.id) is False
+
+
 def test_update_validates_before_committing_and_filters_sections(store):
     profile = store.create(
         "Main",

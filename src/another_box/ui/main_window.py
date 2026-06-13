@@ -29,6 +29,7 @@ from another_box.storage import ProfileStore
 from another_box.subscriptions import ProfileService
 from another_box.ui.dialogs import LogDialog, ProfileDialog
 from another_box.ui.profile_card import ProfileCard
+from another_box.ui.sizing import fit_button_to_text
 from another_box.ui.workers import Worker
 from another_box.ui.windows import apply_windows_11_backdrop
 
@@ -88,8 +89,7 @@ class MainWindow(QMainWindow):
             self.update_all_button,
             self.add_button,
         ):
-            width = button.fontMetrics().horizontalAdvance(button.text()) + 36
-            button.setMinimumWidth(width)
+            fit_button_to_text(button)
 
         header = QHBoxLayout()
         header.addLayout(heading, 1)
@@ -211,8 +211,10 @@ class MainWindow(QMainWindow):
         self.add_button.setEnabled(False)
 
         self._run(
-            lambda: self.service.create_and_update(name, url, inbound),
-            on_success=lambda _result: self._show_status("Профиль добавлен."),
+            lambda: self.service.create_profile(name, url, inbound),
+            on_success=lambda _result: self._show_status(
+                "Профиль создан. Запустите его вручную после проверки настроек."
+            ),
             on_finished=lambda: self.add_button.setEnabled(True),
         )
 

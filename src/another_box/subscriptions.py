@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -7,8 +8,12 @@ import httpx
 
 from another_box.configuration import ConfigValidator, build_configuration, validate_data
 from another_box.errors import SubscriptionError
+from another_box.json_compat import loads_sing_box_json
+from another_box.logging_config import LOGGER_NAME, compact_exception
 from another_box.models import Profile, utc_now
 from another_box.storage import ProfileStore
+
+logger = logging.getLogger(f"{LOGGER_NAME}.subscriptions")
 
 
 class SubscriptionClient:
@@ -31,21 +36,12 @@ class SubscriptionClient:
             ) as client:
                 response = client.get(url)
                 response.raise_for_status()
-                value = response.json(object_pairs_hook=_reject_duplicate_keys)
+                value = loads_sing_box_json(response.text)
         except (httpx.HTTPError, ValueError) as error:
             raise SubscriptionError(f"Не удалось получить подписку: {error}") from error
         if not isinstance(value, dict):
             raise SubscriptionError("Корень подписки должен быть JSON-объектом.")
         return value
-
-
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    value: dict[str, Any] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError(f"Повторяющаяся опция JSON: «{key}».")
-        value[key] = item
-    return value
 
 
 class ProfileService:
@@ -61,7 +57,7 @@ class ProfileService:
         self.validator = validator
         self.is_running = is_running or (lambda _profile_id: False)
 
-    def create_and_update(
+    def create_profile(
         self,
         name: str,
         url: str,
@@ -69,10 +65,23 @@ class ProfileService:
     ) -> Profile:
         profile = self.store.create(name, url, inbound)
         try:
-            return self.update(profile.id)
-        except Exception:
-            self.store.delete(profile.id)
-            raise
+            source = self.client.fetch(profile.url)
+            config = build_configuration(source, profile.inbound)
+        except Exception as error:
+            profile.last_update_ok = False
+            profile.last_error = str(error)
+            self.store.save(profile)
+            logger.error(
+                "Profile %s created without configuration: %s",
+                profile.name,
+                compact_exception(error),
+            )
+            return profile
+        profile.last_updated_at = utc_now()
+        profile.last_update_ok = None
+        profile.last_error = None
+        self.store.commit_configuration(profile, source, config)
+        return profile
 
     def update(self, profile_id: str) -> Profile:
         profile = self.store.get(profile_id)

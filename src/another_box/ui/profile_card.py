@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from another_box.models import Profile
+from another_box.ui.sizing import fit_button_to_text
 
 
 class ProfileCard(QFrame):
@@ -69,7 +70,7 @@ class ProfileCard(QFrame):
         details.addWidget(status)
         details.addWidget(updated)
 
-        action = QPushButton("Остановить" if running else "Запустить")
+        action = QPushButton("Стоп" if running else "Запустить")
         action.setObjectName("primary" if not running else "")
         action.setIcon(
             self.style().standardIcon(
@@ -86,15 +87,13 @@ class ProfileCard(QFrame):
                 else self.start_requested.emit(profile.id)
             )
         )
-        action.setMinimumWidth(action.fontMetrics().horizontalAdvance("Остановить") + 34)
+        fit_button_to_text(action)
 
         menu_button = QToolButton()
         menu_button.setObjectName("moreButton")
         menu_button.setText("Ещё...")
         menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu_button.setMinimumWidth(
-            menu_button.fontMetrics().horizontalAdvance(menu_button.text()) + 36
-        )
+        fit_button_to_text(menu_button)
         menu = QMenu(menu_button)
         update_action = menu.addAction("Обновить подписку")
         edit_action = menu.addAction("Изменить профиль")

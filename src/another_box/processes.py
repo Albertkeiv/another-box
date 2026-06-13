@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from another_box.configuration import ConfigValidator
+from another_box.configuration import ConfigValidator, validate_launch_requirements
 from another_box.errors import (
     ProcessConflictError,
     ProcessStartError,
@@ -101,7 +101,11 @@ class ProcessManager:
         profile = self.store.get(profile_id)
         config_path = self.store.config_path(profile_id)
         if not config_path.is_file():
-            raise ProcessStartError("Профиль еще не содержит рабочую конфигурацию.")
+            detail = f" Последняя ошибка: {profile.last_error}" if profile.last_error else ""
+            raise ProcessStartError(
+                "Профиль еще не содержит загруженную конфигурацию. "
+                f"Обновите подписку и повторите запуск.{detail}"
+            )
 
         with self._lock:
             if self.is_running(profile_id):
@@ -114,6 +118,7 @@ class ProcessManager:
                 )
 
         try:
+            validate_launch_requirements(self.store.load_config(profile_id))
             self.validator.validate(config_path)
         except ValidationError as error:
             raise ProcessStartError(f"Проверка конфигурации не пройдена: {error}") from error

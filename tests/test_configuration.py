@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from another_box.configuration import build_configuration
+from another_box.configuration import build_configuration, validate_launch_requirements
 from another_box.errors import ValidationError
-from another_box.models import OUTBOUND_TAG, InboundConfig
+from another_box.models import INBOUND_TAG, OUTBOUND_TAG, InboundConfig
 
 
 def test_build_configuration_keeps_only_allowed_subscription_sections():
@@ -55,29 +55,6 @@ def test_optional_allowed_sections_can_be_absent():
     assert set(result) == {"outbounds", "inbounds"}
 
 
-@pytest.mark.parametrize(
-    "source",
-    [
-        {},
-        {"outbounds": []},
-        {"endpoints": []},
-        {"outbounds": [], "endpoints": []},
-    ],
-)
-def test_configuration_requires_at_least_one_outbound_or_endpoint(source):
-    with pytest.raises(ValidationError, match="хотя бы один outbound или endpoint"):
-        build_configuration(source, InboundConfig())
-
-
-def test_proxy_endpoint_can_be_used_without_outbounds():
-    endpoint = {"type": "wireguard", "tag": OUTBOUND_TAG}
-
-    result = build_configuration({"endpoints": [endpoint]}, InboundConfig())
-
-    assert result["endpoints"] == [endpoint]
-    assert "outbounds" not in result
-
-
 def test_tun_configuration_uses_current_array_address_shape():
     inbound = InboundConfig(
         kind="tun",
@@ -88,29 +65,32 @@ def test_tun_configuration_uses_current_array_address_shape():
     result = inbound.to_sing_box()
 
     assert result["type"] == "tun"
-    assert result["tag"] == "tun-in"
+    assert result["tag"] == INBOUND_TAG
     assert result["address"] == ["172.19.0.1/30"]
     assert result["auto_route"] is True
     assert result["strict_route"] is True
 
 
-def test_inbound_tag_is_user_configurable():
+def test_inbound_tag_is_always_in():
     inbound = InboundConfig(tag="custom")
 
-    assert inbound.tag == "custom"
-    assert inbound.to_sing_box()["tag"] == "custom"
+    assert inbound.tag == INBOUND_TAG
+    assert inbound.to_sing_box()["tag"] == INBOUND_TAG
 
 
-def test_old_proxy_inbound_tag_is_migrated_to_kind_default():
-    assert InboundConfig(kind="mixed", tag="PROXY").tag == "mixed-in"
-    assert InboundConfig(kind="tun", tag="PROXY").tag == "tun-in"
+def test_old_inbound_tags_are_migrated_to_in():
+    assert InboundConfig(kind="mixed", tag="mixed-in").tag == INBOUND_TAG
+    assert InboundConfig(kind="tun", tag="tun-in").tag == INBOUND_TAG
+    assert InboundConfig(kind="mixed", tag="PROXY").tag == INBOUND_TAG
 
 
-def test_configuration_requires_proxy_target():
+def test_configuration_requires_proxy_outbound():
     with pytest.raises(ValidationError, match="outbound.*PROXY"):
-        build_configuration(
-            {"outbounds": [{"type": "direct", "tag": "direct"}]},
-            InboundConfig(),
+        validate_launch_requirements(
+            build_configuration(
+                {"outbounds": [{"type": "direct", "tag": "direct"}]},
+                InboundConfig(),
+            )
         )
 
 

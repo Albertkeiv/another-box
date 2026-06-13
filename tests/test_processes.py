@@ -6,7 +6,7 @@ import threading
 import pytest
 
 from another_box.errors import ProcessConflictError, ProcessStartError
-from another_box.models import InboundConfig
+from another_box.models import OUTBOUND_TAG, InboundConfig
 from another_box.processes import ProcessManager
 
 
@@ -74,7 +74,11 @@ class Launcher:
 
 def create_ready_profile(store, name, inbound):
     profile = store.create(name, f"https://example.test/{name}", inbound)
-    store.commit_configuration(profile, {"outbounds": []}, {"inbounds": []})
+    config = {
+        "inbounds": [inbound.to_sing_box()],
+        "outbounds": [{"type": "direct", "tag": OUTBOUND_TAG}],
+    }
+    store.commit_configuration(profile, {"outbounds": config["outbounds"]}, config)
     return profile
 
 
@@ -190,3 +194,23 @@ def test_logs_are_persisted_and_limited(store, app_paths):
     persisted = store.load_log(profile.id)
     assert len(persisted) == 500
     assert persisted[0] == "line 10"
+
+
+def test_missing_proxy_outbound_is_rejected_only_on_start(store, app_paths):
+    profile = store.create(
+        "missing-proxy",
+        "https://example.test/missing-proxy",
+        InboundConfig(),
+    )
+    store.commit_configuration(
+        profile,
+        {"outbounds": [{"type": "direct", "tag": "direct"}]},
+        {
+            "inbounds": [profile.inbound.to_sing_box()],
+            "outbounds": [{"type": "direct", "tag": "direct"}],
+        },
+    )
+    process_manager = manager(store, app_paths)
+
+    with pytest.raises(ProcessStartError, match="outbound.*PROXY"):
+        process_manager.start(profile.id)

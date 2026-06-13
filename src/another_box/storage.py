@@ -109,6 +109,15 @@ class ProfileStore:
             raise ValueError("Корень конфигурации должен быть JSON-объектом.")
         return value
 
+    def load_config(self, profile_id: str) -> dict[str, Any]:
+        path = self.config_path(profile_id)
+        if not path.is_file():
+            raise ProfileNotFoundError("Конфигурация профиля отсутствует.")
+        value = self._read_json(path)
+        if not isinstance(value, dict):
+            raise ValueError("Корень конфигурации должен быть JSON-объектом.")
+        return value
+
     def commit_configuration(
         self,
         profile: Profile,

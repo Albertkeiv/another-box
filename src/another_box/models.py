@@ -7,6 +7,7 @@ from typing import Any, Literal
 InboundKind = Literal["mixed", "tun"]
 TunStack = Literal["mixed", "system", "gvisor"]
 OUTBOUND_TAG = "PROXY"
+INBOUND_TAG = "IN"
 
 
 def utc_now() -> str:
@@ -16,7 +17,7 @@ def utc_now() -> str:
 @dataclass(slots=True)
 class InboundConfig:
     kind: InboundKind = "mixed"
-    tag: str = ""
+    tag: str = INBOUND_TAG
     listen: str = "127.0.0.1"
     port: int = 2080
     set_system_proxy: bool = False
@@ -28,21 +29,20 @@ class InboundConfig:
     strict_route: bool = True
 
     def __post_init__(self) -> None:
-        if not self.tag or self.tag == OUTBOUND_TAG:
-            self.tag = "tun-in" if self.kind == "tun" else "mixed-in"
+        self.tag = INBOUND_TAG
 
     def to_sing_box(self) -> dict[str, Any]:
         if self.kind == "mixed":
             return {
                 "type": "mixed",
-                "tag": self.tag or "mixed-in",
+                "tag": INBOUND_TAG,
                 "listen": self.listen,
                 "listen_port": self.port,
                 "set_system_proxy": self.set_system_proxy,
             }
         return {
             "type": "tun",
-            "tag": self.tag or "tun-in",
+            "tag": INBOUND_TAG,
             "interface_name": self.interface_name,
             "address": [self.address],
             "mtu": self.mtu,

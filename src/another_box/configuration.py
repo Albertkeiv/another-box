@@ -18,7 +18,6 @@ def build_configuration(
     source: dict[str, Any],
     inbound: InboundConfig,
 ) -> dict[str, Any]:
-    _validate_proxy_target(source)
     config = {
         section: deepcopy(source[section])
         for section in SUBSCRIPTION_SECTIONS
@@ -28,24 +27,14 @@ def build_configuration(
     return config
 
 
-def _validate_proxy_target(source: dict[str, Any]) -> None:
-    targets = [
-        target
-        for section in ("outbounds", "endpoints")
-        if isinstance(source.get(section), list)
-        for target in source[section]
-    ]
-    if not targets:
-        raise ValidationError(
-            "Подписка должна содержать хотя бы один outbound или endpoint."
-        )
-    if not any(
-        isinstance(target, dict) and target.get("tag") == OUTBOUND_TAG
-        for target in targets
+def validate_launch_requirements(config: dict[str, Any]) -> None:
+    outbounds = config.get("outbounds")
+    if not isinstance(outbounds, list) or not any(
+        isinstance(outbound, dict) and outbound.get("tag") == OUTBOUND_TAG
+        for outbound in outbounds
     ):
         raise ValidationError(
-            f"Подписка должна содержать outbound или endpoint "
-            f"с tag «{OUTBOUND_TAG}»."
+            f"Конфигурация должна содержать outbound с tag «{OUTBOUND_TAG}»."
         )
 
 

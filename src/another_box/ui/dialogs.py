@@ -22,7 +22,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from another_box.models import OUTBOUND_TAG, InboundConfig, Profile
+from another_box.models import INBOUND_TAG, OUTBOUND_TAG, InboundConfig, Profile
+from another_box.ui.sizing import fit_button_to_text
 from another_box.ui.windows import apply_windows_11_backdrop
 
 
@@ -44,8 +45,7 @@ class ProfileDialog(QDialog):
         self.type_combo.addItem("TUN", "tun")
         self.type_combo.setCurrentIndex(0 if inbound.kind == "mixed" else 1)
         tag_label = QLabel(
-            f"Подписка должна содержать outbound или endpoint "
-            f"с tag {OUTBOUND_TAG}."
+            f"Обязательные tag: inbound — {INBOUND_TAG}, outbound — {OUTBOUND_TAG}."
         )
         tag_label.setObjectName("muted")
         tag_label.setWordWrap(True)
@@ -70,7 +70,7 @@ class ProfileDialog(QDialog):
         buttons.button(QDialogButtonBox.StandardButton.Save).setText("Сохранить")
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Отмена")
         for button in buttons.buttons():
-            button.setMinimumWidth(button.fontMetrics().horizontalAdvance(button.text()) + 34)
+            fit_button_to_text(button)
         buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
 
@@ -87,16 +87,12 @@ class ProfileDialog(QDialog):
     def _mixed_page(self, inbound: InboundConfig) -> QWidget:
         group = QGroupBox("Параметры mixed")
         form = QFormLayout(group)
-        self.mixed_tag = QLineEdit(
-            inbound.tag if inbound.kind == "mixed" else "mixed-in"
-        )
         self.listen_edit = QLineEdit(inbound.listen)
         self.port_spin = QSpinBox()
         self.port_spin.setRange(1, 65535)
         self.port_spin.setValue(inbound.port)
         self.system_proxy_check = QCheckBox("Настраивать системный прокси Windows")
         self.system_proxy_check.setChecked(inbound.set_system_proxy)
-        form.addRow("Tag:", self.mixed_tag)
         form.addRow("Адрес:", self.listen_edit)
         form.addRow("Порт:", self.port_spin)
         form.addRow("", self.system_proxy_check)
@@ -105,7 +101,6 @@ class ProfileDialog(QDialog):
     def _tun_page(self, inbound: InboundConfig) -> QWidget:
         group = QGroupBox("Параметры TUN")
         form = QFormLayout(group)
-        self.tun_tag = QLineEdit(inbound.tag if inbound.kind == "tun" else "tun-in")
         self.interface_edit = QLineEdit(inbound.interface_name)
         self.address_edit = QLineEdit(inbound.address)
         self.mtu_spin = QSpinBox()
@@ -121,7 +116,6 @@ class ProfileDialog(QDialog):
         self.auto_route_check.setChecked(inbound.auto_route)
         self.strict_route_check = QCheckBox("Строгая маршрутизация и защита DNS")
         self.strict_route_check.setChecked(inbound.strict_route)
-        form.addRow("Tag:", self.tun_tag)
         form.addRow("Имя интерфейса:", self.interface_edit)
         form.addRow("Адрес (CIDR):", self.address_edit)
         form.addRow("MTU:", self.mtu_spin)
@@ -135,7 +129,6 @@ class ProfileDialog(QDialog):
         if kind == "mixed":
             inbound = InboundConfig(
                 kind="mixed",
-                tag=self.mixed_tag.text().strip() or "mixed-in",
                 listen=self.listen_edit.text().strip(),
                 port=self.port_spin.value(),
                 set_system_proxy=self.system_proxy_check.isChecked(),
@@ -143,7 +136,6 @@ class ProfileDialog(QDialog):
         else:
             inbound = InboundConfig(
                 kind="tun",
-                tag=self.tun_tag.text().strip() or "tun-in",
                 interface_name=self.interface_edit.text().strip(),
                 address=self.address_edit.text().strip(),
                 mtu=self.mtu_spin.value(),
@@ -187,6 +179,7 @@ class LogDialog(QDialog):
         editor.moveCursor(QTextCursor.MoveOperation.End)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрыть")
+        fit_button_to_text(buttons.button(QDialogButtonBox.StandardButton.Close))
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addWidget(editor)
