@@ -4,8 +4,15 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QThreadPool, QTimer, Qt
-from PySide6.QtGui import QColor, QCloseEvent, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QThreadPool, QTimer, Qt, QUrl
+from PySide6.QtGui import (
+    QColor,
+    QCloseEvent,
+    QDesktopServices,
+    QIcon,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -22,6 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from another_box.auto_update import auto_update_due
 from another_box.models import Profile
 from another_box.logging_config import LOGGER_NAME, read_application_log
 from another_box.processes import ProcessManager
@@ -137,6 +145,11 @@ class MainWindow(QMainWindow):
         self.poll_timer.setInterval(1000)
         self.poll_timer.timeout.connect(self._poll_runtime)
         self.poll_timer.start()
+
+        self.auto_update_timer = QTimer(self)
+        self.auto_update_timer.setInterval(60_000)
+        self.auto_update_timer.timeout.connect(self._run_due_auto_updates)
+        self.auto_update_timer.start()
         self.refresh()
 
     def showEvent(self, event) -> None:
@@ -195,6 +208,7 @@ class MainWindow(QMainWindow):
                 card.edit_requested.connect(self.edit_profile)
                 card.delete_requested.connect(self.delete_profile)
                 card.logs_requested.connect(self.show_logs)
+                card.logs_folder_requested.connect(self.open_profile_logs_folder)
                 self.cards_layout.addWidget(card)
 
         busy = bool(self._updating)
@@ -206,12 +220,26 @@ class MainWindow(QMainWindow):
         dialog = ProfileDialog(parent=self)
         if dialog.exec() != ProfileDialog.DialogCode.Accepted:
             return
-        name, url, inbound = dialog.values()
+        (
+            name,
+            url,
+            inbound,
+            auto_enabled,
+            auto_interval,
+            log_config,
+        ) = dialog.values()
         self.status_label.setText(f"Добавление профиля «{name}»...")
         self.add_button.setEnabled(False)
 
         self._run(
-            lambda: self.service.create_profile(name, url, inbound),
+            lambda: self.service.create_profile(
+                name,
+                url,
+                inbound,
+                auto_enabled,
+                auto_interval,
+                log_config,
+            ),
             on_success=lambda _result: self._show_status(
                 "Профиль создан. Запустите его вручную после проверки настроек."
             ),
@@ -227,12 +255,27 @@ class MainWindow(QMainWindow):
         dialog = ProfileDialog(profile, self)
         if dialog.exec() != ProfileDialog.DialogCode.Accepted:
             return
-        name, url, inbound = dialog.values()
+        (
+            name,
+            url,
+            inbound,
+            auto_enabled,
+            auto_interval,
+            log_config,
+        ) = dialog.values()
         self._updating.add(profile_id)
         self.status_label.setText(f"Сохранение профиля «{name}»...")
         self.refresh()
         self._run(
-            lambda: self.service.edit(profile_id, name, url, inbound),
+            lambda: self.service.edit(
+                profile_id,
+                name,
+                url,
+                inbound,
+                auto_enabled,
+                auto_interval,
+                log_config,
+            ),
             on_success=lambda _result: self._show_status("Профиль сохранен."),
             on_finished=lambda: self._finish_update(profile_id),
         )
@@ -283,6 +326,22 @@ class MainWindow(QMainWindow):
             show_error=False,
         )
 
+    def _run_due_auto_updates(self) -> None:
+        for profile in self.store.list_profiles():
+            if profile.id in self._updating or not auto_update_due(profile):
+                continue
+            self._updating.add(profile.id)
+            logger.info(
+                "Automatic subscription update started for profile %s",
+                profile.name,
+            )
+            self._run(
+                lambda pid=profile.id: self.service.update(pid),
+                on_finished=lambda pid=profile.id: self._finish_update(pid),
+                show_error=False,
+            )
+        self.refresh()
+
     def start_profile(self, profile_id: str) -> None:
         profile = self.store.get(profile_id)
         self.status_label.setText(f"Запуск профиля «{profile.name}»...")
@@ -291,6 +350,7 @@ class MainWindow(QMainWindow):
             on_success=lambda _result: self._show_status(
                 f"Профиль «{profile.name}» запущен."
             ),
+            on_failure=lambda text: self._record_start_error(profile_id, text),
         )
 
     def stop_profile(self, profile_id: str) -> None:
@@ -333,6 +393,25 @@ class MainWindow(QMainWindow):
         )
         LogDialog("Приложение", text, self).exec()
 
+    def open_profile_logs_folder(self, profile_id: str) -> None:
+        logs_dir = self.store.profile_dir(profile_id)
+        try:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(logs_dir)))
+        except OSError as error:
+            logger.error(
+                "Failed to open logs folder for profile %s: %s",
+                profile_id,
+                error,
+            )
+            return
+        if not opened:
+            logger.error(
+                "Failed to open logs folder for profile %s: %s",
+                profile_id,
+                logs_dir,
+            )
+
     def quit_application(self) -> None:
         self._quitting = True
         self.status_label.setText("Остановка активных профилей...")
@@ -344,6 +423,7 @@ class MainWindow(QMainWindow):
         self,
         operation: Callable,
         on_success: Callable | None = None,
+        on_failure: Callable[[str], None] | None = None,
         on_finished: Callable | None = None,
         show_error: bool = True,
     ) -> None:
@@ -351,7 +431,9 @@ class MainWindow(QMainWindow):
         self._workers.add(worker)
         if on_success:
             worker.signals.succeeded.connect(on_success)
-        if show_error:
+        if on_failure:
+            worker.signals.failed.connect(on_failure)
+        elif show_error:
             worker.signals.failed.connect(self._show_error)
         if on_finished:
             worker.signals.finished.connect(on_finished)
@@ -377,11 +459,12 @@ class MainWindow(QMainWindow):
     def _show_error(self, text: str) -> None:
         logger.error("%s", text)
         self.status_label.clear()
-        QMessageBox.critical(
-            self,
-            "Ошибка",
-            f"{text}\n\nПодробности сохранены в журнале приложения.",
-        )
+        self.refresh()
+
+    def _record_start_error(self, profile_id: str, text: str) -> None:
+        logger.error("Failed to start profile %s: %s", profile_id, text)
+        self.processes.set_runtime_error(profile_id, text)
+        self.status_label.clear()
         self.refresh()
 
     def _rebuild_tray_menu(self) -> None:

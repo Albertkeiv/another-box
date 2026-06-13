@@ -5,7 +5,7 @@ import json
 import pytest
 
 from another_box.errors import SubscriptionError, ValidationError
-from another_box.models import OUTBOUND_TAG, InboundConfig
+from another_box.models import OUTBOUND_TAG, InboundConfig, SingBoxLogConfig
 from another_box.subscriptions import ProfileService
 
 
@@ -47,9 +47,56 @@ def test_create_profile_saves_config_without_sing_box_validation(store):
 
     written = json.loads(store.config_path(profile.id).read_text("utf-8"))
     assert written["inbounds"][0]["listen_port"] == 2088
-    assert "log" not in written
+    assert written["log"] == {
+        "disabled": False,
+        "level": "info",
+        "timestamp": True,
+    }
     assert validator.values == []
     assert profile.last_update_ok is None
+
+
+def test_create_profile_saves_auto_update_settings(store):
+    source = {"outbounds": [{"type": "direct", "tag": OUTBOUND_TAG}]}
+    service = ProfileService(store, StaticClient(source), ReadingValidator())
+
+    profile = service.create_profile(
+        "Auto",
+        "https://example.test/config.json",
+        InboundConfig(),
+        auto_update_enabled=True,
+        auto_update_interval_minutes=15,
+    )
+
+    saved = store.get(profile.id)
+    assert saved.auto_update_enabled is True
+    assert saved.auto_update_interval_minutes == 30
+    assert saved.last_update_attempt_at is not None
+
+
+def test_create_profile_saves_sing_box_log_settings(store):
+    source = {"outbounds": [{"type": "direct", "tag": OUTBOUND_TAG}]}
+    service = ProfileService(store, StaticClient(source), ReadingValidator())
+    log_config = SingBoxLogConfig(
+        enabled=True,
+        level="debug",
+        timestamp=False,
+    )
+
+    profile = service.create_profile(
+        "Debug",
+        "https://example.test/config.json",
+        InboundConfig(),
+        sing_box_log=log_config,
+    )
+
+    assert store.get(profile.id).sing_box_log == log_config
+    written = json.loads(store.config_path(profile.id).read_text("utf-8"))
+    assert written["log"] == {
+        "disabled": False,
+        "level": "debug",
+        "timestamp": False,
+    }
 
 
 def test_failed_create_keeps_profile_for_later_retry(store):
@@ -94,7 +141,11 @@ def test_update_validates_before_committing_and_filters_sections(store):
     assert written["inbounds"][0]["listen_port"] == 2088
     assert written["dns"] == source["dns"]
     assert written["endpoints"] == source["endpoints"]
-    assert "log" not in written
+    assert written["log"] == {
+        "disabled": False,
+        "level": "info",
+        "timestamp": True,
+    }
     assert "experimental" not in written
     assert updated.last_update_ok is True
     assert validator.values == [written]

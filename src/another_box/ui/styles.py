@@ -103,6 +103,9 @@ QToolButton#moreButton:pressed {
 QLineEdit, QSpinBox, QComboBox {
     min-height: 28px;
 }
+QSpinBox[invalid="true"] {
+    border: 1px solid #c42b1c;
+}
 QScrollArea {
     border: none;
     background: transparent;

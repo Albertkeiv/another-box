@@ -89,6 +89,14 @@ class ProcessManager:
         with self._lock:
             return self._runtime_errors.get(profile_id)
 
+    def set_runtime_error(self, profile_id: str, message: str) -> None:
+        with self._lock:
+            self._runtime_errors[profile_id] = message
+
+    def clear_runtime_error(self, profile_id: str) -> None:
+        with self._lock:
+            self._runtime_errors.pop(profile_id, None)
+
     def logs(self, profile_id: str) -> str:
         with self._lock:
             managed = self._active.get(profile_id)
@@ -99,6 +107,7 @@ class ProcessManager:
 
     def start(self, profile_id: str) -> None:
         profile = self.store.get(profile_id)
+        self.clear_runtime_error(profile_id)
         config_path = self.store.config_path(profile_id)
         if not config_path.is_file():
             detail = f" Последняя ошибка: {profile.last_error}" if profile.last_error else ""

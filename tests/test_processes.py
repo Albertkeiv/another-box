@@ -214,3 +214,13 @@ def test_missing_proxy_outbound_is_rejected_only_on_start(store, app_paths):
 
     with pytest.raises(ProcessStartError, match="outbound.*PROXY"):
         process_manager.start(profile.id)
+
+
+def test_runtime_error_can_be_stored_and_cleared(store, app_paths):
+    process_manager = manager(store, app_paths)
+
+    process_manager.set_runtime_error("profile", "failed to start")
+    assert process_manager.runtime_error("profile") == "failed to start"
+
+    process_manager.clear_runtime_error("profile")
+    assert process_manager.runtime_error("profile") is None

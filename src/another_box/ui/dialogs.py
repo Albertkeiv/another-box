@@ -22,7 +22,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from another_box.models import INBOUND_TAG, OUTBOUND_TAG, InboundConfig, Profile
+from another_box.models import (
+    DEFAULT_AUTO_UPDATE_MINUTES,
+    INBOUND_TAG,
+    LOG_LEVELS,
+    MIN_AUTO_UPDATE_MINUTES,
+    OUTBOUND_TAG,
+    InboundConfig,
+    Profile,
+    SingBoxLogConfig,
+)
 from another_box.ui.sizing import fit_button_to_text
 from another_box.ui.windows import apply_windows_11_backdrop
 
@@ -57,6 +66,60 @@ class ProfileDialog(QDialog):
         identity_form.addRow("Тип inbound:", self.type_combo)
         identity_form.addRow("", tag_label)
 
+        auto_update_group = QGroupBox("Автообновление подписки")
+        auto_update_form = QFormLayout(auto_update_group)
+        self.auto_update_check = QCheckBox("Включить автообновление")
+        self.auto_update_check.setChecked(
+            profile.auto_update_enabled if profile else False
+        )
+        self.auto_update_interval = QSpinBox()
+        self.auto_update_interval.setRange(MIN_AUTO_UPDATE_MINUTES, 10080)
+        self.auto_update_interval.setValue(
+            profile.auto_update_interval_minutes
+            if profile
+            else DEFAULT_AUTO_UPDATE_MINUTES
+        )
+        self.auto_update_interval.setEnabled(self.auto_update_check.isChecked())
+        self.auto_update_check.toggled.connect(
+            self.auto_update_interval.setEnabled
+        )
+        self.auto_update_hint = QLabel(
+            f"Минимум {MIN_AUTO_UPDATE_MINUTES} минут"
+        )
+        self.auto_update_hint.setObjectName("muted")
+        auto_update_form.addRow("", self.auto_update_check)
+        auto_update_form.addRow("Интервал, минут:", self.auto_update_interval)
+        auto_update_form.addRow("", self.auto_update_hint)
+
+        logging_group = QGroupBox("Логирование sing-box")
+        logging_form = QFormLayout(logging_group)
+        self.logging_enabled_check = QCheckBox("Включить логирование")
+        self.logging_enabled_check.setChecked(
+            profile.sing_box_log.enabled if profile else True
+        )
+        self.logging_level_combo = QComboBox()
+        for level in LOG_LEVELS:
+            self.logging_level_combo.addItem(level, level)
+        current_log = profile.sing_box_log if profile else SingBoxLogConfig()
+        self.logging_level_combo.setCurrentIndex(
+            max(0, self.logging_level_combo.findData(current_log.level))
+        )
+        self.logging_timestamp_check = QCheckBox("Добавлять время к строкам")
+        self.logging_timestamp_check.setChecked(current_log.timestamp)
+        self.logging_level_combo.setEnabled(self.logging_enabled_check.isChecked())
+        self.logging_timestamp_check.setEnabled(
+            self.logging_enabled_check.isChecked()
+        )
+        self.logging_enabled_check.toggled.connect(
+            self.logging_level_combo.setEnabled
+        )
+        self.logging_enabled_check.toggled.connect(
+            self.logging_timestamp_check.setEnabled
+        )
+        logging_form.addRow("", self.logging_enabled_check)
+        logging_form.addRow("Уровень:", self.logging_level_combo)
+        logging_form.addRow("", self.logging_timestamp_check)
+
         self.inbound_stack = QStackedWidget()
         self.inbound_stack.addWidget(self._mixed_page(inbound))
         self.inbound_stack.addWidget(self._tun_page(inbound))
@@ -69,20 +132,48 @@ class ProfileDialog(QDialog):
         )
         buttons.button(QDialogButtonBox.StandardButton.Save).setText("Сохранить")
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Отмена")
+        self.save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
         for button in buttons.buttons():
             fit_button_to_text(button)
+        self.auto_update_interval.lineEdit().textChanged.connect(
+            self._update_auto_update_validation
+        )
+        self.auto_update_check.toggled.connect(
+            lambda _checked: self._update_auto_update_validation()
+        )
+        self._update_auto_update_validation()
         buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
         layout.addWidget(identity_group)
+        layout.addWidget(auto_update_group)
+        layout.addWidget(logging_group)
         layout.addWidget(self.inbound_stack)
         layout.addWidget(buttons)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         apply_windows_11_backdrop(self)
+
+    def _update_auto_update_validation(self, _text: str = "") -> None:
+        raw_value = self.auto_update_interval.lineEdit().text().strip()
+        try:
+            value = int(raw_value)
+        except ValueError:
+            value = 0
+        invalid = (
+            self.auto_update_check.isChecked()
+            and value < MIN_AUTO_UPDATE_MINUTES
+        )
+        self.auto_update_interval.setProperty("invalid", invalid)
+        self.auto_update_interval.style().unpolish(self.auto_update_interval)
+        self.auto_update_interval.style().polish(self.auto_update_interval)
+        self.auto_update_hint.setObjectName("error" if invalid else "muted")
+        self.auto_update_hint.style().unpolish(self.auto_update_hint)
+        self.auto_update_hint.style().polish(self.auto_update_hint)
+        self.save_button.setEnabled(not invalid)
 
     def _mixed_page(self, inbound: InboundConfig) -> QWidget:
         group = QGroupBox("Параметры mixed")
@@ -124,7 +215,9 @@ class ProfileDialog(QDialog):
         form.addRow("", self.strict_route_check)
         return group
 
-    def values(self) -> tuple[str, str, InboundConfig]:
+    def values(
+        self,
+    ) -> tuple[str, str, InboundConfig, bool, int, SingBoxLogConfig]:
         kind = self.type_combo.currentData()
         if kind == "mixed":
             inbound = InboundConfig(
@@ -143,10 +236,28 @@ class ProfileDialog(QDialog):
                 auto_route=self.auto_route_check.isChecked(),
                 strict_route=self.strict_route_check.isChecked(),
             )
-        return self.name_edit.text().strip(), self.url_edit.text().strip(), inbound
+        return (
+            self.name_edit.text().strip(),
+            self.url_edit.text().strip(),
+            inbound,
+            self.auto_update_check.isChecked(),
+            self.auto_update_interval.value(),
+            SingBoxLogConfig(
+                enabled=self.logging_enabled_check.isChecked(),
+                level=self.logging_level_combo.currentData(),
+                timestamp=self.logging_timestamp_check.isChecked(),
+            ),
+        )
 
     def _accept_if_valid(self) -> None:
-        name, url, inbound = self.values()
+        (
+            name,
+            url,
+            inbound,
+            _auto_enabled,
+            _auto_interval,
+            _log_config,
+        ) = self.values()
         parsed = urlparse(url)
         problems: list[str] = []
         if not name:

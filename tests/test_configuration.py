@@ -4,7 +4,12 @@ import pytest
 
 from another_box.configuration import build_configuration, validate_launch_requirements
 from another_box.errors import ValidationError
-from another_box.models import INBOUND_TAG, OUTBOUND_TAG, InboundConfig
+from another_box.models import (
+    INBOUND_TAG,
+    OUTBOUND_TAG,
+    InboundConfig,
+    SingBoxLogConfig,
+)
 
 
 def test_build_configuration_keeps_only_allowed_subscription_sections():
@@ -34,8 +39,19 @@ def test_build_configuration_keeps_only_allowed_subscription_sections():
     assert result["dns"] == source["dns"]
     assert result["endpoints"] == source["endpoints"]
     assert result["outbounds"] == source["outbounds"]
-    assert set(result) == {"inbounds", "outbounds", "endpoints", "route", "dns"}
-    assert "log" not in result
+    assert set(result) == {
+        "inbounds",
+        "outbounds",
+        "endpoints",
+        "route",
+        "dns",
+        "log",
+    }
+    assert result["log"] == {
+        "disabled": False,
+        "level": "info",
+        "timestamp": True,
+    }
     assert "experimental" not in result
     assert "ntp" not in result
     assert result["route"]["rules"][0]["inbound"] == ["old-in"]
@@ -52,7 +68,28 @@ def test_optional_allowed_sections_can_be_absent():
 
     result = build_configuration(source, InboundConfig())
 
-    assert set(result) == {"outbounds", "inbounds"}
+    assert set(result) == {"outbounds", "inbounds", "log"}
+
+
+def test_profile_log_settings_replace_subscription_log_section():
+    source = {
+        "outbounds": [{"type": "direct", "tag": OUTBOUND_TAG}],
+        "log": {"level": "trace", "output": "subscription.log"},
+    }
+    log_config = SingBoxLogConfig(
+        enabled=False,
+        level="error",
+        timestamp=False,
+    )
+
+    result = build_configuration(source, InboundConfig(), log_config)
+
+    assert result["log"] == {
+        "disabled": True,
+        "level": "error",
+        "timestamp": False,
+    }
+    assert "output" not in result["log"]
 
 
 def test_tun_configuration_uses_current_array_address_shape():

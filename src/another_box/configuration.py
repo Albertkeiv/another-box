@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from another_box.errors import ValidationError
-from another_box.models import OUTBOUND_TAG, InboundConfig
+from another_box.models import OUTBOUND_TAG, InboundConfig, SingBoxLogConfig
 
 SUBSCRIPTION_SECTIONS = ("outbounds", "endpoints", "route", "dns")
 
@@ -17,6 +17,7 @@ SUBSCRIPTION_SECTIONS = ("outbounds", "endpoints", "route", "dns")
 def build_configuration(
     source: dict[str, Any],
     inbound: InboundConfig,
+    log_config: SingBoxLogConfig | None = None,
 ) -> dict[str, Any]:
     config = {
         section: deepcopy(source[section])
@@ -24,6 +25,7 @@ def build_configuration(
         if section in source
     }
     config["inbounds"] = [inbound.to_sing_box()]
+    config["log"] = (log_config or SingBoxLogConfig()).to_sing_box()
     return config
 
 
